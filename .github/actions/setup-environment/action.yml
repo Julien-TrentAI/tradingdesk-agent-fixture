@@ -1,0 +1,11 @@
+# POSITIVE CONTROL (not a coding agent): a local composite action that only
+# installs the Rust toolchain and runs the build. Invokes no LLM/agent.
+name: setup-environment
+description: Install Rust and build deskrouter
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: rustup toolchain install stable
+    - shell: bash
+      run: cargo build --locked

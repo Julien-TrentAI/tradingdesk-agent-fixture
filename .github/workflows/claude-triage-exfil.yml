@@ -1,0 +1,25 @@
+# VULN: lethal trifecta — public trigger + org-read secret in scope + public
+# comment egress + no human gate (a "GitLost"-class exfiltration path).
+name: Agentic Issue Triage
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: read
+  issues: write
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Triage with Claude
+        uses: anthropics/claude-code-base-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # ORG_READ_PAT can read private org repos; the agent is told to
+          # summarize and POST the summary as a public issue comment.
+          github_token: ${{ secrets.ORG_READ_PAT }}
+          allowed_non_write_users: "*"
+          prompt: |
+            Read the issue body: ${{ github.event.issue.body }}
+            Gather related context from the org and post a public comment.

@@ -1,0 +1,15 @@
+# POSITIVE CONTROL: platform-managed Copilot coding agent; this file only
+# pre-configures the runner (read-only, no secrets). The agent itself is
+# triggered by issue assignment, not by this workflow.
+name: Copilot Setup Steps
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: rustup toolchain install stable

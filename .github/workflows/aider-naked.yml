@@ -1,0 +1,21 @@
+# VULN: naked shelled-in agent, broad token, unpinned checkout, public trigger.
+name: Aider Fix
+on:
+  issue_comment:
+    types: [created]
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+jobs:
+  aider:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@main
+      - name: Install + run aider
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          pip install aider-chat
+          aider --yes --message "${{ github.event.comment.body }}"

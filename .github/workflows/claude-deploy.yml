@@ -1,0 +1,19 @@
+# VULN: agent-gated production deploy with no human approval gate.
+name: Claude Deploy
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+  id-token: write
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Claude deploy
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: "Build and deploy deskrouter to production."
+          claude_args: "--allowedTools bash,edit,write"
