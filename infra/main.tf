@@ -1,5 +1,11 @@
 # Terraform for deskrouter — DELIBERATELY INSECURE fixture IaC.
 # Fake account/ARNs only. Do not apply.
+#
+# Guard: an impossible required_version makes `terraform apply` fail closed, so
+# this can never be provisioned by accident. Static scanners still parse the HCL.
+terraform {
+  required_version = ">= 999.0.0"
+}
 
 provider "aws" {
   region  = "us-east-1"
