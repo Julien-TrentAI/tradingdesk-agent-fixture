@@ -24,6 +24,10 @@ impl BedrockClient {
     /// Ask the model for the next action. In this fixture the transport is
     /// stubbed; a real deployment would `bedrock:InvokeModel` here. No loop,
     /// no dispatch — the caller (a runtime) owns the agency.
+    ///
+    /// Contract: `_user_msg` and `_scratch` must be sanitized by the caller
+    /// before invocation. This transport layer performs no filtering, to remain
+    /// protocol-agnostic.
     pub async fn next_action(&self, _tool_menu: &[&str], _user_msg: &str, _scratch: &str) -> AgentAction {
         AgentAction::Finish { answer: "stubbed".to_string() }
     }
