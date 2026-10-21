@@ -38,16 +38,31 @@ resource "aws_db_instance" "orders" {
   skip_final_snapshot = true
 }
 
-# VULN: over-broad IAM for the service role (CWE-284).
+# Least-privilege IAM for the service role (CWE-284).
 resource "aws_iam_role_policy" "desk_service" {
-  name = "desk-service-allow-all"
+  name = "desk-service-least-privilege"
   role = "deskrouter-service-fixture"
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = "*"
-      Resource = "*"
-    }]
+    Statement = [
+      {
+        Sid      = "BedrockInvoke"
+        Effect   = "Allow"
+        Action   = ["bedrock:InvokeModel"]
+        Resource = "arn:aws:bedrock:us-east-1::foundation-model/*"
+      },
+      {
+        Sid      = "RdsConnect"
+        Effect   = "Allow"
+        Action   = ["rds-db:connect"]
+        Resource = "arn:aws:rds-db:us-east-1:*:dbuser:${aws_db_instance.orders.identifier}/desk"
+      },
+      {
+        Sid      = "ResearchCacheObjects"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:PutObject"]
+        Resource = "${aws_s3_bucket.research_cache.arn}/*"
+      }
+    ]
   })
 }
