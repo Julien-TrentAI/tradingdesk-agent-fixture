@@ -9,10 +9,14 @@ permissions:
 jobs:
   review:
     runs-on: ubuntu-latest
+    env:
+      # Skip the review instead of failing when the repository has no key.
+      HAS_ANTHROPIC_KEY: ${{ secrets.ANTHROPIC_API_KEY != '' }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Claude review
-        uses: anthropics/claude-code-action@6d3c8e9a5b2f1e0d4c7a9b8e2f1d0c3a5b6e7f80 # pinned
+        if: env.HAS_ANTHROPIC_KEY == 'true'
+        uses: anthropics/claude-code-action@a5a423f75c251dcbff8a74e99f83b2cb03c72bfa # v1.0.256
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: "Review this PR for bugs. Do not modify files."
