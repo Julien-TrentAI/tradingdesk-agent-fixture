@@ -12,17 +12,39 @@ provider "aws" {
   profile = "fixture-fake-account"
 }
 
-# VULN: public research-cache bucket (CWE-732).
+# Research-cache bucket: public access blocked (CWE-732).
 resource "aws_s3_bucket" "research_cache" {
   bucket = "deskrouter-research-cache-fixture"
 }
 
 resource "aws_s3_bucket_public_access_block" "research_cache" {
   bucket                  = aws_s3_bucket.research_cache.id
-  block_public_acls       = false
-  block_public_policy     = false
-  ignore_public_acls      = false
-  restrict_public_buckets = false
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+# Only authenticated AWS principals may access the bucket; anonymous requests are denied.
+resource "aws_s3_bucket_policy" "research_cache" {
+  bucket     = aws_s3_bucket.research_cache.id
+  depends_on = [aws_s3_bucket_public_access_block.research_cache]
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "DenyAnonymousAccess"
+      Effect    = "Deny"
+      Principal = "*"
+      Action    = "s3:*"
+      Resource = [
+        aws_s3_bucket.research_cache.arn,
+        "${aws_s3_bucket.research_cache.arn}/*",
+      ]
+      Condition = {
+        StringEquals = { "aws:PrincipalType" = "Anonymous" }
+      }
+    }]
+  })
 }
 
 # VULN: RDS with no encryption-at-rest and a committed weak password (CWE-798).
