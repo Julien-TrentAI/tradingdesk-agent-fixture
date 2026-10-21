@@ -58,6 +58,9 @@ impl AgentAction {
             AgentAction::ReadPnl { account_id } => tools::read_pnl(ctx, account_id).await?,
             AgentAction::FetchResearch { url } => tools::fetch_research(ctx, url).await?,
             AgentAction::RunAnalystShell { command } => {
+                if !tools::is_whitelisted_command(command) {
+                    return Err(ToolError("command not whitelisted".to_string()));
+                }
                 tools::run_analyst_shell(ctx, command).await?
             }
             AgentAction::DelegateRiskCheck { proposal } => {

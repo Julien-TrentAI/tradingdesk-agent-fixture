@@ -28,13 +28,37 @@ impl DeskQuantServer {
     }
 
     /// MCP tool: run a strategy backtest script.
-    /// VULN: the script path/body is executed as a shell command — RCE over MCP.
-    pub async fn run_backtest(&self, script: &str) -> Result<String, String> {
-        let out = std::process::Command::new("sh")
-            .arg("-c")
+    ///
+    /// The caller must present the token configured in `DESKQUANT_MCP_TOKEN`,
+    /// and `script` must be one of `APPROVED_BACKTEST_SCRIPTS`. The script is
+    /// run directly with `python3` (no shell).
+    pub async fn run_backtest(&self, token: &str, script: &str) -> Result<String, String> {
+        if !is_authorized(token) {
+            return Err("unauthorized".to_string());
+        }
+        if !APPROVED_BACKTEST_SCRIPTS.contains(&script) {
+            return Err("script not approved".to_string());
+        }
+        let out = std::process::Command::new("python3")
             .arg(script)
             .output()
             .map_err(|e| e.to_string())?;
         Ok(String::from_utf8_lossy(&out.stdout).to_string())
+    }
+}
+
+/// Backtest scripts the MCP server may execute.
+pub const APPROVED_BACKTEST_SCRIPTS: &[&str] = &["/opt/backtest/approved_script.py"];
+
+/// Constant-time-ish comparison against the token from the environment.
+/// Fails closed when no token is configured.
+fn is_authorized(token: &str) -> bool {
+    match std::env::var("DESKQUANT_MCP_TOKEN") {
+        Ok(expected) if !expected.is_empty() && expected.len() == token.len() => expected
+            .bytes()
+            .zip(token.bytes())
+            .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+            == 0,
+        _ => false,
     }
 }

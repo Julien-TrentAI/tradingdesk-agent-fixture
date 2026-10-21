@@ -101,12 +101,56 @@ pub async fn fetch_research(_ctx: &ToolContext, url: &str) -> Result<String, Too
     Ok(text.chars().take(500).collect())
 }
 
+/// Programs the analyst tool may execute. Matched exactly against the first
+/// token; no path components are accepted.
+pub const ALLOWED_COMMANDS: &[&str] = &["python3", "backtester.py", "analysis.sh"];
+
+/// Characters that are never accepted in a command line, even though no shell
+/// is involved (defence in depth against a future switch back to `sh -c`).
+const FORBIDDEN_CHARS: &[char] = &[';', '&', '|', '`', '$', '<', '>', '(', ')', '{', '}', '\\', '\n', '\r', '\0', '"', '\''];
+
+/// True when the first token of `cmd` is an allowlisted command and the
+/// command line contains no shell metacharacters.
+pub fn is_whitelisted_command(cmd: &str) -> bool {
+    if cmd.contains(FORBIDDEN_CHARS) {
+        return false;
+    }
+    match cmd.split_whitespace().next() {
+        Some(first) => ALLOWED_COMMANDS.contains(&first),
+        None => false,
+    }
+}
+
 pub async fn run_analyst_shell(_ctx: &ToolContext, command: &str) -> Result<String, ToolError> {
-    // VULN: RCE — arbitrary command execution via a model-chosen string.
-    let out = std::process::Command::new("sh")
-        .arg("-c")
-        .arg(command)
+    if !is_whitelisted_command(command) {
+        return Err(ToolError("command not whitelisted".to_string()));
+    }
+    // No shell interpretation: the program and its arguments are passed directly.
+    let mut parts = command.split_whitespace();
+    let program = parts.next().ok_or_else(|| ToolError("empty command".to_string()))?;
+    let out = std::process::Command::new(program)
+        .args(parts)
         .output()
         .map_err(|e| ToolError(e.to_string()))?;
     Ok(String::from_utf8_lossy(&out.stdout).to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_whitelisted_command;
+
+    #[test]
+    fn allows_listed_commands() {
+        assert!(is_whitelisted_command("python3 backtester.py --fast"));
+        assert!(is_whitelisted_command("analysis.sh"));
+    }
+
+    #[test]
+    fn rejects_unlisted_and_injected() {
+        assert!(!is_whitelisted_command(""));
+        assert!(!is_whitelisted_command("rm -rf /"));
+        assert!(!is_whitelisted_command("python3 x; rm -rf /"));
+        assert!(!is_whitelisted_command("analysis.sh $(id)"));
+        assert!(!is_whitelisted_command("/bin/sh -c id"));
+    }
 }
