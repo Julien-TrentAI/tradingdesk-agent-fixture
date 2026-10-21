@@ -6,6 +6,7 @@
 //! verdict. Distinct runtime, nested under the router.
 
 use crate::agent::action::AgentAction;
+use crate::agent::order_router::redact_system_info;
 use crate::agent::tools::{ToolContext, ToolError};
 use crate::data::bedrock_client::BedrockClient;
 use zeroize::Zeroize;
@@ -29,7 +30,7 @@ impl RiskChecker {
             let action = self.llm.next_action(RISK_TOOLS, proposal, &scratch).await;
             if let AgentAction::Finish { answer } = &action {
                 scratch.zeroize();
-                return answer.clone();
+                return redact_system_info(answer);
             }
             let allowed: Result<(), ToolError> = match &action {
                 AgentAction::Quote { .. }
@@ -42,7 +43,7 @@ impl RiskChecker {
                 continue;
             }
             match action.dispatch(ctx).await {
-                Ok(r) => scratch.push_str(&format!("\n{}", r.output)),
+                Ok(r) => scratch.push_str(&format!("\n{}", redact_system_info(&r.output))),
                 Err(e) => scratch.push_str(&format!("\nerr: {e}")),
             }
         }

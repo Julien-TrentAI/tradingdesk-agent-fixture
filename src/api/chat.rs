@@ -24,10 +24,40 @@ pub async fn handle_chat(req: ChatRequest) -> String {
         tenant_account: account,
     };
     let router = OrderRouter::new(BedrockClient::new("anthropic.claude-3-5-sonnet-20241022-v2:0"));
-    router.run(&ctx, &req.message).await
+    let message = sanitize_user_input(&req.message);
+    router.run(&ctx, &message).await
 }
 
 fn account_from_jwt(jwt: &str) -> String {
     // Deliberately naive: trusts an unverified claim substring.
     jwt.split('.').nth(1).unwrap_or("acct-unknown").to_string()
+}
+
+/// Phrases commonly used to extract the system prompt or tool registry.
+const INJECTION_PATTERNS: &[&str] = &[
+    "ignore previous instructions",
+    "ignore all previous instructions",
+    "ignore instructions",
+    "ignore the instructions",
+    "system prompt",
+    "repeat back",
+    "debug mode",
+    "show constraints",
+];
+
+/// Neutralize common jailbreak / prompt-extraction phrases in user text by
+/// replacing each match (case-insensitively) with `[filtered]`.
+pub fn sanitize_user_input(msg: &str) -> String {
+    let mut out = msg.to_string();
+    for pat in INJECTION_PATTERNS {
+        loop {
+            // ASCII lowercasing preserves byte offsets, so indices map back to `out`.
+            let lower = out.to_ascii_lowercase();
+            match lower.find(pat) {
+                Some(i) => out.replace_range(i..i + pat.len(), "[filtered]"),
+                None => break,
+            }
+        }
+    }
+    out
 }

@@ -37,6 +37,34 @@ impl OrderRouter {
     }
 }
 
+/// Mask tool names, system-instruction markers and credential patterns in model
+/// or tool output before it is appended to scratch or returned to the user.
+pub fn redact_system_info(output: &str) -> String {
+    const MARKERS: &[&str] = &[
+        "system prompt",
+        "system instructions",
+        "tool registry",
+        "tool menu",
+        "postgres://",
+        "akia",
+        "bearer ",
+        "password=",
+        "secret=",
+        "api_key=",
+    ];
+    let mut out = output.to_string();
+    let mut names: Vec<&str> = TOOL_REGISTRY.values().map(|s| s.name).collect();
+    names.sort_by_key(|n| std::cmp::Reverse(n.len()));
+    for pat in names.into_iter().chain(MARKERS.iter().copied()) {
+        let mut from = 0;
+        while let Some(i) = out.to_ascii_lowercase()[from..].find(pat).map(|i| i + from) {
+            out.replace_range(i..i + pat.len(), "[redacted]");
+            from = i + "[redacted]".len();
+        }
+    }
+    out
+}
+
 #[async_trait::async_trait]
 impl Agent for OrderRouter {
     fn name(&self) -> &str {
@@ -52,7 +80,7 @@ impl Agent for OrderRouter {
 
             if let AgentAction::DelegateRiskCheck { proposal } = &action {
                 // Hand off to the nested risk-check runtime.
-                let verdict = self.risk.run(ctx, proposal).await;
+                let verdict = redact_system_info(&self.risk.run(ctx, proposal).await);
                 scratch.push_str(&format!("\nrisk-verdict: {verdict}"));
                 continue;
             }
@@ -61,6 +89,7 @@ impl Agent for OrderRouter {
                 Ok(r) => r,
                 Err(e) => ActionResult { ok: false, output: e.to_string() },
             };
+            let output = redact_system_info(&output);
             if action.is_finish() {
                 scratch.zeroize();
                 return output;
