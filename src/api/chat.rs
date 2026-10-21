@@ -61,3 +61,43 @@ pub fn sanitize_user_input(msg: &str) -> String {
     }
     out
 }
+
+/// Verified JWT claims relevant to authorization.
+pub struct Claims {
+    pub sub: String,
+    pub is_admin: bool,
+}
+
+/// Verify an HS256 JWT (signature with `JWT_SECRET`, `exp` not past) and return its claims.
+pub fn verify_jwt(jwt: &str) -> Option<Claims> {
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD as B64, Engine};
+    use hmac::{Hmac, KeyInit, Mac};
+    use sha2::Sha256;
+
+    let secret = std::env::var("JWT_SECRET").ok().filter(|s| !s.is_empty())?;
+    let mut parts = jwt.split('.');
+    let (header, payload, sig) = (parts.next()?, parts.next()?, parts.next()?);
+    if parts.next().is_some() {
+        return None;
+    }
+    let hdr = header;
+    let header: serde_json::Value = serde_json::from_slice(&B64.decode(hdr).ok()?).ok()?;
+    if header.get("alg")?.as_str()? != "HS256" {
+        return None;
+    }
+    let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).ok()?;
+    mac.update(format!("{hdr}.{payload}").as_bytes());
+    mac.verify_slice(&B64.decode(sig).ok()?).ok()?;
+
+    let claims: serde_json::Value = serde_json::from_slice(&B64.decode(payload).ok()?).ok()?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    if claims.get("exp")?.as_u64()? <= now {
+        return None;
+    }
+    let is_admin = claims.get("admin").and_then(|v| v.as_bool()) == Some(true)
+        || claims.get("role").and_then(|v| v.as_str()) == Some("admin");
+    Some(Claims { sub: claims.get("sub")?.as_str()?.to_string(), is_admin })
+}
