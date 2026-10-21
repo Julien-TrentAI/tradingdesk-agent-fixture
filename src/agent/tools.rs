@@ -53,6 +53,14 @@ pub static TOOL_REGISTRY: Lazy<HashMap<&'static str, ToolSpec>> = Lazy::new(|| {
     m
 });
 
+/// Reject any model-supplied account that is not the session's verified account.
+fn ensure_own_account(ctx: &ToolContext, account_id: &str) -> Result<(), ToolError> {
+    if account_id != ctx.tenant_account {
+        return Err(ToolError("account_id does not match the authenticated account".into()));
+    }
+    Ok(())
+}
+
 pub async fn place_order(
     ctx: &ToolContext,
     account_id: &str,
@@ -60,9 +68,7 @@ pub async fn place_order(
     qty: i64,
     limit: Option<f64>,
 ) -> Result<String, ToolError> {
-    // VULN: account_id comes from the model, not the verified session — a
-    // prompt-injected account_id lets one tenant trade in another's account
-    // (cross-account IDOR write).
+    ensure_own_account(ctx, account_id)?;
     ctx.pg
         .insert_order(account_id, symbol, qty, limit)
         .await
@@ -71,6 +77,7 @@ pub async fn place_order(
 }
 
 pub async fn cancel_order(ctx: &ToolContext, account_id: &str, order_id: &str) -> Result<String, ToolError> {
+    ensure_own_account(ctx, account_id)?;
     ctx.pg
         .cancel_order(account_id, order_id)
         .await
@@ -83,12 +90,13 @@ pub async fn quote(_ctx: &ToolContext, symbol: &str) -> Result<String, ToolError
 }
 
 pub async fn lookup_position(ctx: &ToolContext, account_id: &str) -> Result<String, ToolError> {
-    // VULN: unscoped read — the tool trusts the model-supplied account_id.
+    ensure_own_account(ctx, account_id)?;
     let rows = ctx.pg.positions(account_id).await.map_err(|e| ToolError(e.to_string()))?;
     Ok(rows.join(", "))
 }
 
 pub async fn read_pnl(ctx: &ToolContext, account_id: &str) -> Result<String, ToolError> {
+    ensure_own_account(ctx, account_id)?;
     let pnl = ctx.pg.pnl(account_id).await.map_err(|e| ToolError(e.to_string()))?;
     Ok(format!("pnl={pnl}"))
 }
