@@ -6,7 +6,7 @@
 //! verdict. Distinct runtime, nested under the router.
 
 use crate::agent::action::AgentAction;
-use crate::agent::tools::ToolContext;
+use crate::agent::tools::{ToolContext, ToolError};
 use crate::data::bedrock_client::BedrockClient;
 use zeroize::Zeroize;
 
@@ -30,6 +30,16 @@ impl RiskChecker {
             if let AgentAction::Finish { answer } = &action {
                 scratch.zeroize();
                 return answer.clone();
+            }
+            let allowed: Result<(), ToolError> = match &action {
+                AgentAction::Quote { .. }
+                | AgentAction::LookupPosition { .. }
+                | AgentAction::ReadPnl { .. } => Ok(()),
+                _ => Err(ToolError::unauthorized("RiskChecker cannot execute this tool")),
+            };
+            if let Err(e) = allowed {
+                scratch.push_str(&format!("\nerr: {e}"));
+                continue;
             }
             match action.dispatch(ctx).await {
                 Ok(r) => scratch.push_str(&format!("\n{}", r.output)),
