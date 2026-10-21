@@ -12,13 +12,11 @@ pub const SERVER_NAME: &str = "deskquant-mcp";
 /// Tools this server advertises via ListTools.
 pub const MCP_TOOLS: &[&str] = &["run_backtest"];
 
-pub struct DeskQuantServer {
-    pg: PgClient,
-}
+pub struct DeskQuantServer;
 
 impl DeskQuantServer {
-    pub fn new(pg: PgClient) -> Self {
-        Self { pg }
+    pub fn new(_pg: PgClient) -> Self {
+        Self
     }
 
     /// MCP tool: run a strategy backtest script.
