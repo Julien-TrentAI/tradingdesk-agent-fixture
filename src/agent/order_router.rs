@@ -9,7 +9,38 @@ use crate::agent::action::{ActionResult, AgentAction};
 use crate::agent::risk_checker::RiskChecker;
 use crate::agent::tools::{ToolContext, TOOL_REGISTRY};
 use crate::data::bedrock_client::BedrockClient;
+use std::time::{Duration, Instant};
 use zeroize::Zeroize;
+
+/// Resource limits shared between a parent agent and its nested sub-agents.
+pub struct Budget {
+    pub tokens_remaining: usize,
+    pub deadline: Instant,
+}
+
+impl Budget {
+    pub fn new(token_budget: usize, timeout: Duration) -> Self {
+        Self { tokens_remaining: token_budget, deadline: Instant::now() + timeout }
+    }
+
+    /// Charge `tokens` against the budget; false once the budget is exceeded.
+    pub fn charge(&mut self, tokens: usize) -> bool {
+        match self.tokens_remaining.checked_sub(tokens) {
+            Some(rest) => {
+                self.tokens_remaining = rest;
+                true
+            }
+            None => {
+                self.tokens_remaining = 0;
+                false
+            }
+        }
+    }
+
+    pub fn timed_out(&self) -> bool {
+        Instant::now() > self.deadline
+    }
+}
 
 /// A live, LLM-driving agent runtime.
 #[async_trait::async_trait]
@@ -22,13 +53,15 @@ pub struct OrderRouter {
     llm: BedrockClient,
     risk: RiskChecker,
     max_steps: usize,
+    token_budget: usize,
+    wall_clock_timeout: Duration,
 }
 
 impl OrderRouter {
     pub fn new(llm: BedrockClient) -> Self {
         // The sub-agent shares the model client but has its own loop + tool set.
         let risk = RiskChecker::new(BedrockClient::new("anthropic.claude-3-5-haiku-20241022-v1:0"));
-        Self { llm, risk, max_steps: 12 }
+        Self { llm, risk, max_steps: 12, token_budget: 4000, wall_clock_timeout: Duration::from_secs(60) }
     }
 
     /// The tool names advertised to the model, sourced from the registry.
@@ -74,13 +107,22 @@ impl Agent for OrderRouter {
     async fn run(&self, ctx: &ToolContext, user_msg: &str) -> String {
         let menu = self.tool_menu();
         let mut scratch = String::new();
+        let mut budget = Budget::new(self.token_budget, self.wall_clock_timeout);
         for _ in 0..self.max_steps {
+            if budget.timed_out() {
+                scratch.zeroize();
+                return "error: wall-clock timeout exceeded".to_string();
+            }
             // Ask the model for the next action given the tool menu + scratch.
-            let action: AgentAction = self.llm.next_action(&menu, user_msg, &scratch).await;
+            let (action, tokens): (AgentAction, usize) = self.llm.next_action(&menu, user_msg, &scratch).await;
+            if !budget.charge(tokens) {
+                scratch.zeroize();
+                return "token budget exhausted".to_string();
+            }
 
             if let AgentAction::DelegateRiskCheck { proposal } = &action {
                 // Hand off to the nested risk-check runtime.
-                let verdict = redact_system_info(&self.risk.run(ctx, proposal).await);
+                let verdict = redact_system_info(&self.risk.run(ctx, proposal, &mut budget, 1).await);
                 scratch.push_str(&format!("\nrisk-verdict: {verdict}"));
                 continue;
             }

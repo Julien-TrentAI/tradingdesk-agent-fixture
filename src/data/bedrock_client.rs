@@ -28,7 +28,13 @@ impl BedrockClient {
     /// Contract: `_user_msg` and `_scratch` must be sanitized by the caller
     /// before invocation. This transport layer performs no filtering, to remain
     /// protocol-agnostic.
-    pub async fn next_action(&self, _tool_menu: &[&str], _user_msg: &str, _scratch: &str) -> AgentAction {
-        AgentAction::Finish { answer: "stubbed".to_string() }
+    ///
+    /// Returns the action plus the tokens consumed by the call, so callers can
+    /// enforce a budget. The stub estimates usage at ~4 bytes per token.
+    pub async fn next_action(&self, tool_menu: &[&str], user_msg: &str, scratch: &str) -> (AgentAction, usize) {
+        let answer = "stubbed".to_string();
+        let input: usize = tool_menu.iter().map(|t| t.len()).sum::<usize>() + user_msg.len() + scratch.len();
+        let tokens = (input + answer.len()).div_ceil(4);
+        (AgentAction::Finish { answer }, tokens)
     }
 }

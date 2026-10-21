@@ -6,13 +6,16 @@
 //! verdict. Distinct runtime, nested under the router.
 
 use crate::agent::action::AgentAction;
-use crate::agent::order_router::redact_system_info;
+use crate::agent::order_router::{redact_system_info, Budget};
 use crate::agent::tools::{ToolContext, ToolError};
 use crate::data::bedrock_client::BedrockClient;
 use zeroize::Zeroize;
 
 /// Read-only tool subset this sub-agent is allowed to call.
 pub const RISK_TOOLS: &[&str] = &["quote", "lookup_position", "read_pnl"];
+
+/// Maximum agent nesting depth (OrderRouter = 0, RiskChecker = 1).
+pub const MAX_DEPTH: usize = 2;
 
 pub struct RiskChecker {
     llm: BedrockClient,
@@ -24,10 +27,22 @@ impl RiskChecker {
         Self { llm, max_steps: 4 }
     }
 
-    pub async fn run(&self, ctx: &ToolContext, proposal: &str) -> String {
+    /// Runs under the parent's shared `budget`; `depth` is this agent's nesting depth.
+    pub async fn run(&self, ctx: &ToolContext, proposal: &str, budget: &mut Budget, depth: usize) -> String {
+        if depth > MAX_DEPTH {
+            return "error: max agent depth exceeded".to_string();
+        }
         let mut scratch = String::new();
         for _ in 0..self.max_steps {
-            let action = self.llm.next_action(RISK_TOOLS, proposal, &scratch).await;
+            if budget.timed_out() {
+                scratch.zeroize();
+                return "error: wall-clock timeout exceeded".to_string();
+            }
+            let (action, tokens) = self.llm.next_action(RISK_TOOLS, proposal, &scratch).await;
+            if !budget.charge(tokens) {
+                scratch.zeroize();
+                return "token budget exhausted".to_string();
+            }
             if let AgentAction::Finish { answer } = &action {
                 scratch.zeroize();
                 return redact_system_info(answer);
