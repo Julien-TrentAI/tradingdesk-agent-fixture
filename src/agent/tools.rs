@@ -107,10 +107,57 @@ pub async fn read_pnl(ctx: &ToolContext, account_id: &str) -> Result<String, Too
     Ok(format!("pnl={pnl}"))
 }
 
+/// Domains `fetch_research` may contact (exact host or any subdomain). Override
+/// with a comma-separated `RESEARCH_ALLOWED_DOMAINS` environment variable.
+const DEFAULT_RESEARCH_DOMAINS: &[&str] = &["sec.gov", "federalreserve.gov", "bls.gov", "treasury.gov"];
+
+fn research_domains() -> Vec<String> {
+    match std::env::var("RESEARCH_ALLOWED_DOMAINS") {
+        Ok(v) if !v.trim().is_empty() => v
+            .split(',')
+            .map(|d| d.trim().trim_start_matches('.').to_ascii_lowercase())
+            .filter(|d| !d.is_empty())
+            .collect(),
+        _ => DEFAULT_RESEARCH_DOMAINS.iter().map(|d| d.to_string()).collect(),
+    }
+}
+
+/// Validate a model-supplied URL against the allow-list. Only https URLs with a
+/// DNS host on the allow-list are accepted; IP literals (which covers private
+/// ranges and metadata endpoints such as 169.254.169.254) are always rejected.
+fn validate_research_url(url: &str, allowed: &[String]) -> Result<reqwest::Url, ToolError> {
+    let parsed = reqwest::Url::parse(url).map_err(|_| ToolError("invalid URL".into()))?;
+    if parsed.scheme() != "https" {
+        return Err(ToolError("only https URLs are allowed".into()));
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err(ToolError("URL credentials are not allowed".into()));
+    }
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| ToolError("URL has no host".into()))?
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+    if host.starts_with('[') || host.parse::<std::net::IpAddr>().is_ok() {
+        return Err(ToolError("IP address hosts are not allowed".into()));
+    }
+    let permitted = allowed
+        .iter()
+        .any(|d| host == *d || host.strip_suffix(d.as_str()).is_some_and(|p| p.ends_with('.')));
+    if !permitted {
+        return Err(ToolError(format!("host {host} is not on the research allow-list")));
+    }
+    Ok(parsed)
+}
+
 pub async fn fetch_research(_ctx: &ToolContext, url: &str) -> Result<String, ToolError> {
-    // VULN: SSRF — the model chooses the URL and it is fetched with no
-    // allow-list, so it can reach internal metadata endpoints.
-    let body = reqwest::get(url).await.map_err(|e| ToolError(e.to_string()))?;
+    let parsed = validate_research_url(url, &research_domains())?;
+    // Redirects are disabled so an allow-listed host cannot bounce us elsewhere.
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| ToolError(e.to_string()))?;
+    let body = client.get(parsed).send().await.map_err(|e| ToolError(e.to_string()))?;
     let text = body.text().await.map_err(|e| ToolError(e.to_string()))?;
     Ok(text.chars().take(500).collect())
 }
@@ -123,4 +170,38 @@ pub async fn run_analyst_shell(_ctx: &ToolContext, command: &str) -> Result<Stri
         .output()
         .map_err(|e| ToolError(e.to_string()))?;
     Ok(String::from_utf8_lossy(&out.stdout).to_string())
+}
+
+#[cfg(test)]
+mod research_url_tests {
+    use super::*;
+
+    fn allowed() -> Vec<String> {
+        vec!["sec.gov".to_string()]
+    }
+
+    #[test]
+    fn accepts_allowed_hosts() {
+        assert!(validate_research_url("https://sec.gov/x", &allowed()).is_ok());
+        assert!(validate_research_url("https://www.SEC.gov/x", &allowed()).is_ok());
+    }
+
+    #[test]
+    fn rejects_unsafe_urls() {
+        for u in [
+            "http://sec.gov/x",
+            "https://169.254.169.254/latest/meta-data/",
+            "https://10.0.0.1/",
+            "https://127.0.0.1/",
+            "https://[::1]/",
+            "https://evilsec.gov/",
+            "https://sec.gov.evil.com/",
+            "https://sec.gov@evil.com/",
+            "https://metadata.google.internal/",
+            "file:///etc/passwd",
+            "not a url",
+        ] {
+            assert!(validate_research_url(u, &allowed()).is_err(), "{u}");
+        }
+    }
 }
