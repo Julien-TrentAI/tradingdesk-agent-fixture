@@ -162,6 +162,16 @@ pub async fn fetch_research(_ctx: &ToolContext, url: &str) -> Result<String, Too
     Ok(text.chars().take(500).collect())
 }
 
+pub async fn run_analyst_shell(_ctx: &ToolContext, command: &str) -> Result<String, ToolError> {
+    // VULN: RCE — arbitrary command execution via a model-chosen string.
+    let out = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(command)
+        .output()
+        .map_err(|e| ToolError(e.to_string()))?;
+    Ok(String::from_utf8_lossy(&out.stdout).to_string())
+}
+
 #[cfg(test)]
 mod research_url_tests {
     use super::*;
@@ -194,14 +204,4 @@ mod research_url_tests {
             assert!(validate_research_url(u, &allowed()).is_err(), "{u}");
         }
     }
-}
-
-pub async fn run_analyst_shell(_ctx: &ToolContext, command: &str) -> Result<String, ToolError> {
-    // VULN: RCE — arbitrary command execution via a model-chosen string.
-    let out = std::process::Command::new("sh")
-        .arg("-c")
-        .arg(command)
-        .output()
-        .map_err(|e| ToolError(e.to_string()))?;
-    Ok(String::from_utf8_lossy(&out.stdout).to_string())
 }
