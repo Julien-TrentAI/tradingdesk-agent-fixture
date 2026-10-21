@@ -9,6 +9,7 @@ use crate::agent::action::{ActionResult, AgentAction};
 use crate::agent::risk_checker::RiskChecker;
 use crate::agent::tools::{ToolContext, TOOL_REGISTRY};
 use crate::data::bedrock_client::BedrockClient;
+use zeroize::Zeroize;
 
 /// A live, LLM-driving agent runtime.
 #[async_trait::async_trait]
@@ -61,10 +62,12 @@ impl Agent for OrderRouter {
                 Err(e) => ActionResult { ok: false, output: e.to_string() },
             };
             if action.is_finish() {
+                scratch.zeroize();
                 return output;
             }
             scratch.push_str(&format!("\n[{ok}] {output}"));
         }
+        scratch.zeroize();
         "step budget exhausted".to_string()
     }
 }

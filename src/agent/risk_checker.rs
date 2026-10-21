@@ -8,6 +8,7 @@
 use crate::agent::action::AgentAction;
 use crate::agent::tools::ToolContext;
 use crate::data::bedrock_client::BedrockClient;
+use zeroize::Zeroize;
 
 /// Read-only tool subset this sub-agent is allowed to call.
 pub const RISK_TOOLS: &[&str] = &["quote", "lookup_position", "read_pnl"];
@@ -27,6 +28,7 @@ impl RiskChecker {
         for _ in 0..self.max_steps {
             let action = self.llm.next_action(RISK_TOOLS, proposal, &scratch).await;
             if let AgentAction::Finish { answer } = &action {
+                scratch.zeroize();
                 return answer.clone();
             }
             match action.dispatch(ctx).await {
@@ -34,6 +36,7 @@ impl RiskChecker {
                 Err(e) => scratch.push_str(&format!("\nerr: {e}")),
             }
         }
+        scratch.zeroize();
         "abstain".to_string()
     }
 }
