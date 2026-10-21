@@ -26,6 +26,12 @@ impl std::fmt::Display for ToolError {
 }
 impl std::error::Error for ToolError {}
 
+impl ToolError {
+    pub fn unauthorized(msg: &str) -> Self {
+        ToolError(format!("Unauthorized: {msg}"))
+    }
+}
+
 /// Static description of a tool the model may call.
 pub struct ToolSpec {
     pub name: &'static str,
