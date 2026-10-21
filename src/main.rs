@@ -16,5 +16,8 @@ async fn main() {
         jwt: "hdr.acct-42.sig".to_string(),
     })
     .await;
-    println!("{resp}");
+    match resp {
+        Ok(text) => println!("{text}"),
+        Err(e) => eprintln!("request rejected: HTTP {}", e.status()),
+    }
 }
