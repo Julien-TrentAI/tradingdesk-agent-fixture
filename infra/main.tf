@@ -25,6 +25,31 @@ resource "aws_s3_bucket_public_access_block" "research_cache" {
   restrict_public_buckets = false
 }
 
+resource "aws_s3_bucket_server_side_encryption_configuration" "research_cache" {
+  bucket = aws_s3_bucket.research_cache.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+variable "research_cache_mfa" {
+  description = "MFA device serial and current code, e.g. 'arn:aws:iam::123456789012:mfa/root 123456'. Required to manage MFA delete."
+  type        = string
+  default     = null
+  sensitive   = true
+}
+
+resource "aws_s3_bucket_versioning" "research_cache" {
+  bucket = aws_s3_bucket.research_cache.id
+  mfa    = var.research_cache_mfa
+  versioning_configuration {
+    status     = "Enabled"
+    mfa_delete = "Enabled"
+  }
+}
+
 # VULN: RDS with no encryption-at-rest and a committed weak password (CWE-798).
 resource "aws_db_instance" "orders" {
   identifier          = "deskrouter-orders-fixture"
